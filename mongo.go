@@ -83,11 +83,11 @@ func (mc *MongoClient) Close() error {
 }
 
 func (c *MongoCollection) Create(item bson.M) bool {
-	_, crerr := c.collection.InsertOne(ctx, item)
+	_, crerr := c.collection.InsertOne(context.Background(), item)
 	return crerr == nil
 }
 
 func (c *MongoCollection) UpdateOne(id bson.D, fields bson.M) bool {
-	_, uerr := c.collection.UpdateOne(ctx, id, fields)
+	_, uerr := c.collection.UpdateOne(context.Background(), id, fields)
 	return uerr == nil
 }
