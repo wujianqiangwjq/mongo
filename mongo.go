@@ -145,7 +145,7 @@ func (c *MongoCollection) HandleLoop() {
 						c.updateOne(bson.D{{"_id", id}}, updatedata)
 
 					} else {
-						createdata := bson.M{"_id": id, "data": []bson.M{interdata}}
+						createdata := bson.M{"_id": id, key: []bson.M{interdata}}
 						fmt.Println("create", createdata)
 						c.create(createdata)
 					}
