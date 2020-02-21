@@ -20,10 +20,12 @@ type MongoDb struct {
 
 type MongoCollection struct {
 	collection *mongo.Collection
+	dataqueue  chan []bson.M
+	stopflag   bool
 }
 
 var Client *MongoClient
-var ctx context.Context
+var Ctx context.Context
 
 func init() {
 	flag := true
@@ -59,12 +61,13 @@ func init() {
 		panic(err)
 		return
 	}
-	ctx, _ = context.WithTimeout(context.Background(), 6*time.Second)
-	err = client.Connect(ctx)
+	Ctx, _ = context.WithTimeout(context.Background(), 6*time.Second)
+	err = client.Connect(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	Client = &MongoClient{client: client}
+
+	Client = &MongoClient{client: client, dataqueue: make(chan []bson.M, 1000), stopflag: false}
 	// collectinstance = Client.Database("scheduler").Collection("jobs")
 }
 
@@ -75,19 +78,79 @@ func (db *MongoDb) GetCollection(collection string) *MongoCollection {
 	return &MongoCollection{collection: db.database.Collection(collection)}
 }
 func (mc *MongoClient) Close() error {
-	er := mc.client.Disconnect(ctx)
+	er := mc.client.Disconnect(Ctx)
 	if er == nil {
 		mc.client = nil
 	}
 	return er
 }
 
-func (c *MongoCollection) Create(item bson.M) bool {
+func (c *MongoCollection) create(item bson.M) bool {
 	_, crerr := c.collection.InsertOne(context.Background(), item)
 	return crerr == nil
 }
 
-func (c *MongoCollection) UpdateOne(id bson.D, fields bson.M) bool {
+func (c *MongoCollection) updateOne(id bson.D, fields bson.M) bool {
 	_, uerr := c.collection.UpdateOne(context.Background(), id, fields)
 	return uerr == nil
+}
+func (c *MongoCollection) exist(id bson.D) bool {
+	_, uerr := c.collection.Find(context.Background(), id)
+	return uerr == nil
+}
+
+//fields format: {"_id":1,"data":{"_id":1,"open":12.7..}, push_key:"data"}
+func (c *MongoCollection) Push(fields bson.M) {
+	c.dataqueue <- fields
+}
+
+func (c *MongoCollection) GetValueToString(fields bson.M, key string) (string, bool) {
+	if data, ok := fields[key]; ok {
+		return data.(string), true
+	} else {
+		return "", false
+	}
+}
+func (c *MongoCollection) GetMapValue(fields bson.M, key string) (map[string]interface{}, bool) {
+	if data, ok := fields[key]; ok {
+		return data.(map[string]interface{}), true
+	} else {
+		return nil, false
+	}
+}
+
+func (c *MongoCollection) HandleLoop() {
+
+	for {
+		if c.stopflag {
+			break
+		}
+		select {
+		case data := <-c.dataqueue:
+			{
+				if sid, ok := data["_id"]; ok {
+					id := sid.(int64)
+					key, ok := c.GetValueToString(data, "push_key")
+					if !ok {
+						break
+					}
+					interdata, ok := c.GetMapValue(data, key)
+					if !ok {
+						break
+					}
+					if c.exist(bson.M{"_id": id}) {
+						updatedata := bson.M{"$push": bson.M{key: interdata}}
+						c.updateOne(bson.M{"_id": id}, updatedata)
+
+					} else {
+						interdata["_id"] = id
+						c.create(data)
+					}
+
+				}
+
+			}
+		}
+	}
+
 }
