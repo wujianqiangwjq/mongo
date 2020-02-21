@@ -20,7 +20,7 @@ type MongoDb struct {
 
 type MongoCollection struct {
 	collection *mongo.Collection
-	dataqueue  chan []bson.M
+	dataqueue  chan bson.M
 	stopflag   bool
 }
 
@@ -67,7 +67,7 @@ func init() {
 		panic(err)
 	}
 
-	Client = &MongoClient{client: client, dataqueue: make(chan []bson.M, 1000), stopflag: false}
+	Client = &MongoClient{client: client}
 	// collectinstance = Client.Database("scheduler").Collection("jobs")
 }
 
@@ -75,7 +75,7 @@ func (mc *MongoClient) GetDb(db string) *MongoDb {
 	return &MongoDb{database: mc.client.Database(db)}
 }
 func (db *MongoDb) GetCollection(collection string) *MongoCollection {
-	return &MongoCollection{collection: db.database.Collection(collection)}
+	return &MongoCollection{collection: db.database.Collection(collection), dataqueue: make(chan bson.M, 1000), stopflag: false}
 }
 func (mc *MongoClient) Close() error {
 	er := mc.client.Disconnect(Ctx)
@@ -95,8 +95,8 @@ func (c *MongoCollection) updateOne(id bson.D, fields bson.M) bool {
 	return uerr == nil
 }
 func (c *MongoCollection) exist(id bson.D) bool {
-	_, uerr := c.collection.Find(context.Background(), id)
-	return uerr == nil
+	_, res := c.collection.FindOne(context.Background(), id).DecodeBytes()
+	return res == nil
 }
 
 //fields format: {"_id":1,"data":{"_id":1,"open":12.7..}, push_key:"data"}
@@ -128,6 +128,7 @@ func (c *MongoCollection) HandleLoop() {
 		select {
 		case data := <-c.dataqueue:
 			{
+				fmt.Println(data)
 				if sid, ok := data["_id"]; ok {
 					id := sid.(int64)
 					key, ok := c.GetValueToString(data, "push_key")
@@ -138,13 +139,15 @@ func (c *MongoCollection) HandleLoop() {
 					if !ok {
 						break
 					}
-					if c.exist(bson.M{"_id": id}) {
+					if c.exist(bson.D{{"_id", id}}) {
 						updatedata := bson.M{"$push": bson.M{key: interdata}}
-						c.updateOne(bson.M{"_id": id}, updatedata)
+						fmt.Println("update", updatedata)
+						c.updateOne(bson.D{{"_id", id}}, updatedata)
 
 					} else {
-						interdata["_id"] = id
-						c.create(data)
+						createdata := bson.M{"_id": id, "data": []bson.M{interdata}}
+						fmt.Println("create", createdata)
+						c.create(createdata)
 					}
 
 				}
