@@ -3,6 +3,7 @@ package mongo
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -128,7 +129,6 @@ func (c *MongoCollection) HandleLoop() {
 		select {
 		case data := <-c.dataqueue:
 			{
-				fmt.Println(data)
 				if sid, ok := data["_id"]; ok {
 					id := sid.(int64)
 					key, ok := c.GetValueToString(data, "push_key")
@@ -141,12 +141,12 @@ func (c *MongoCollection) HandleLoop() {
 					}
 					if c.exist(bson.D{{"_id", id}}) {
 						updatedata := bson.M{"$push": bson.M{key: interdata}}
-						fmt.Println("update", updatedata)
+						log.Println("update", id)
 						c.updateOne(bson.D{{"_id", id}}, updatedata)
 
 					} else {
 						createdata := bson.M{"_id": id, key: []bson.M{interdata}}
-						fmt.Println("create", createdata)
+						log.Println("create", id)
 						c.create(createdata)
 					}
 
